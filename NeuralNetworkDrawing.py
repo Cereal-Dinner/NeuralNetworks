@@ -4,7 +4,7 @@ import NeuralNetworks
 class Drawing:
     #All units of drawing are given by size compared to screen*
     #For example a circle with radius of 0.1 will have a radius of 10% of the screen
-    #*Width of shapes are still given by pixels
+    #*Outline of shapes are still given by pixels
     def __init__(self, resolution, autoUpdate = False):
         self.PyGame = pygame
         self.PyGame.init()
