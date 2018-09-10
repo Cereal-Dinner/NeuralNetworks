@@ -38,7 +38,7 @@ class Drawing:
         self.Display.fill(color)
         self.TryAutoUpdate()
 
-    def Close():
+    def Close(self):
         self.PyGame.quit()
 
     def Color(self, r, g, b):
