@@ -24,6 +24,37 @@ class NeuralLayer:
                 sum += tempInputs[j] * self.Weights[i][j]
             outputs.append(self.ActivationFunction(sum))
         return outputs
+class TanhTeachingNeuralLayer(NeuralLayer):
+    def __init__(self, sourceNeuralLayer):
+        super().__init__(sourceNeuralLayer.NumberOfInputs, sourceNeuralLayer.NumberOfNeurons, sourceNeuralLayer.ActivationFunction, sourceNeuralLayer.Weights)
+        self.Inputs = [0.0 for i in range(sourceNeuralLayer.NumberOfInputs)]
+        self.Outputs = [0.0 for i in range(sourceNeuralLayer.NumberOfNeurons)]
+        self.Errors = [0.0 for i in range(sourceNeuralLayer.NumberOfNeurons)]
+        self.DeltaWeights = [[0.0 for j in range(len(sourceNeuralLayer.Weights[i]))] for i in range(len(sourceNeuralLayer.Weights))]
+    def Calculate(self, inputs):
+        self.Inputs = inputs
+        self.Outputs = super().Calculate(inputs)
+        return self.Outputs
+    def CalculateDeltaWeights(self):
+        self.DeltaWeights = [[0.0 for j in range(len(self.Weights[i]))] for i in range(len(self.Weights))]
+        for i in range(len(self.Weights)):
+            for j in range(len(self.Weights[i])):
+                if j == 0:
+                    self.DeltaWeights[i][j] = 1 * (1 - self.Outputs[i]) * self.Errors[i]
+                else:
+                    self.DeltaWeights[i][j] = self.Inputs[j-1] * (1 - self.Outputs[i]) * self.Errors[i]
+        return self.DeltaWeights
+    def BackPropgateError(self, errors):
+        self.Errors = errors
+        backLayerError = [0.0 for i in range(self.NumberOfInputs)]
+        for i in range(len(self.Weights)):
+            sum = 0
+            for j in range(len(self.Weights[i])):
+                sum += abs(self.Weights[i][j])
+            for j in range(1,len(self.Weights[i])):
+                backLayerError[j-1] += self.Errors[i] * (self.Weights[i][j]/sum)
+        return backLayerError
+
 class NeuralNetwork:
     def __init__(self, map, activationFunction, weights = None):
         self.NeuronLayers = []
@@ -42,49 +73,27 @@ class NeuralTeacherTanh:
     def __init__(self, neuralNetwork, learningRate):
         self.NeuralNetwork = neuralNetwork
         self.LearningRate = learningRate
-        self.NeuronInputs = [[] for i in range(len(self.NeuralNetwork.NeuralLayers))]
-        self.NeuronOutputs = [[] for i in range(len(self.NeuralNetwork.NeuralLayers))]
-        self.DeltaOfWeights = None
-    def CalculateAllDeltaWeights(self, inputs, requiredOutputs):
-        self.DeltaOfWeights = [[[0.0 for k in range(self.NeuralNetwork.NeuralLayers[i].NumberOfInputs + 1)] for j in range(self.NeuralNetwork.NeuralLayers[i].NumberOfNeurons)] for i in range(len(self.NeuralNetwork.NeuralLayers))]
-        self.CalculateAllNeuronInputsAndOutputs(inputs)
-        outputError = []
+        self.TeachingNeuronLayers = [TanhTeachingNeuralLayer(nL) for nL in self.NeuralNetwork.NeuronLayers]
+    def Teach(self, inputs, requiredOutputs):
+        numberOfLayers = len(self.TeachingNeuronLayers)
+        numberOfOutputs = self.TeachingNeuronLayers[numberOfLayers-1].NumberOfNeurons
+        #Feed Forward
+        self.TeachingNeuronLayers[0].Calculate(inputs)
+        for i in range(1,numberOfLayers):
+            self.TeachingNeuronLayers[i].Calculate(self.TeachingNeuronLayers[i-1].Outputs)
+        #Calculate all output errors
+        tempErrors = [requiredOutputs[i] - self.TeachingNeuronLayers[numberOfLayers-1].Outputs[i] for i in range(numberOfOutputs)]
+        for i in range(numberOfLayers-1,0,-1):
+            tempErrors = self.TeachingNeuronLayers[i].BackPropgateError(tempErrors)
 
-    def CalculateAllNeuronInputsAndOutputs(self, inputs):
-        for i in range(len(self.NeuralNetwork.NeuralLayers)):
-            if i == 0:
-                self.NeuronInputs[i] = inputs
-            else:
-                self.NeuronInputs[i] = self.NeuronOutputs[i-1]
-            self.NeuronOutputs[i] = self.NeuralNetwork.NeuralLayers[i].Calculate(self.NeuronInputs[i])
-    def GetDeltaOfNeuron(self, inputs, weights, output, requiredOutput):
-        dWeights = [0.0 for i in range(len(weights))]
-        tempInputs = inputs.copy()
-        tempInputs.insert(0,1)
-        for i in range(len(weights)):
-            dWeights[i] += tempInputs[i] * (1 - output) * (requiredOutput - output) * self.LearningRate
-        return dWeights
-    def CalculateNeuronOutput(self, inputs, weights):
-        tempInputs = inputs.copy()
-        tempInputs.insert(0,1)
-        sum = 0
-        for i in range(len(weights)):
-            sum += tempInputs[i] * weights[i]
-        return math.tanh(sum)
+        for nL in self.TeachingNeuronLayers:
+            nL.CalculateDeltaWeights()
+        for i in range(numberOfLayers):
+            for j in range(self.NeuralNetwork.Map[i+1]):
+                for w in range(len(self.NeuralNetwork.NeuronLayers[i].Weights[j])):
+                    self.NeuralNetwork.NeuronLayers[i].Weights[j][w] += self.TeachingNeuronLayers[i].DeltaWeights[j][w] * self.LearningRate
+        return self.NeuralNetwork
 def aFunc(x):
     return math.tanh(x)
-nn0 = NeuralNetwork([3,4,2],aFunc,[[[0.5,0.3,-0.3,-0.9],[0.2,-0.3,0.4,-0.9],[0.1,0.3,0.2,-0.6],[0.5,0.3,-0.3,-0.9]],[[0.3,0.2,-0.6,0.2,-0.3],[-0.3,-0.9,0.3,0.2,-0.6]]])
-nn = NeuralNetworks.NeuralNetwork(3,[4,2],aFunc,[[0.5,0.3,-0.3,-0.9,0.2,-0.3,0.4,-0.9,0.1,0.3,0.2,-0.6,0.5,0.3,-0.3,-0.9],[0.3,0.2,-0.6,0.2,-0.3,-0.3,-0.9,0.3,0.2,-0.6]])
-print(nn0.Calculate([0.2,1,-2]))
-print(nn.Calculate([0.2,1,-2]))
-inputs = [0.3,-0.5,1]
-weights = [1.5,-0.3,0.6,0.7]
-error = 0
-for i in range(30):
-    o = NeuralTeacherTanh.CalculateNeuronOutput(inputs,weights)
-    print(o)
-    error = 0 - o
-    print(error)
-    dW = NeuralTeacherTanh.GetDeltaOfNeuron(inputs,weights,error)
-    print(dW)
-    weights = [weights[j]+dW[j] for j in range(len(weights))]
+nn = NeuralNetwork([784,128,10],aFunc)
+teacher = NeuralTeacherTanh(nn,0.1)
